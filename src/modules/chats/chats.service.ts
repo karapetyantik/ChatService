@@ -1,17 +1,22 @@
 import {
   Injectable,
+  Inject,
   BadRequestException,
   ForbiddenException,
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
+import { ClientProxy } from '@nestjs/microservices';
 import { types } from 'cassandra-driver';
-import { CassandraService } from 'src/cassandra/cassandra.service';
-import { CreateChatDto } from 'src/chats/dto/creat-chat.dto';
+import { CassandraService } from 'src/common/cassandra/cassandra.service';
+import { CreateChatDto } from './dto/creat-chat.dto';
 
 @Injectable()
 export class ChatsService {
-  constructor(private readonly cassandra: CassandraService) {}
+  constructor(
+    private readonly cassandra: CassandraService,
+    @Inject('RABBITMQ_SERVICE') private readonly rabbitClient: ClientProxy,
+  ) {}
 
   async createChat(creatorId: string, dto: CreateChatDto) {
     if (dto.type === 'direct' && dto.memberIds.length !== 1) {
@@ -204,5 +209,44 @@ export class ChatsService {
     );
 
     return { chatId, removedUserId: targetUserId };
+  }
+
+  async getMemberIds(chatId: string): Promise<string[]> {
+    const result = await this.cassandra.client.execute(
+      `SELECT user_id FROM chat_members WHERE chat_id = ?`,
+      [chatId],
+      { prepare: true },
+    );
+    return result.rows.map((row) => row.user_id.toString());
+  }
+
+  async markAsRead(chatId: string, userId: string, messageId: string) {
+    await this.assertMember(chatId, userId);
+
+    await this.cassandra.client.execute(
+      `INSERT INTO chat_read_state (user_id, chat_id, last_read_message_id, updated_at) VALUES (?, ?, ?, ?)`,
+      [userId, chatId, messageId, new Date()],
+      { prepare: true },
+    );
+
+    const recipientIds = await this.getMemberIds(chatId);
+    this.rabbitClient.emit('chat.read', {
+      chatId,
+      userId,
+      lastReadMessageId: messageId,
+      recipientIds,
+    });
+
+    return { chatId, lastReadMessageId: messageId };
+  }
+
+  async getReadState(userId: string, chatId: string) {
+    const result = await this.cassandra.client.execute(
+      `SELECT last_read_message_id, updated_at FROM chat_read_state WHERE user_id = ? AND chat_id = ?`,
+      [userId, chatId],
+      { prepare: true },
+    );
+
+    return result.rowLength ? result.first() : null;
   }
 }

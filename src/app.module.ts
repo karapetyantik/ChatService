@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { CassandraModule } from './cassandra/cassandra.module';
+import { CassandraModule } from './common/cassandra/cassandra.module';
 import { ConfigModule } from '@nestjs/config';
-import { AuthModule } from './auth/auth.module';
-import { MessagesModule } from './messages/messages.module';
-import { ChatsModule } from './chats/chats.module';
+import { AuthModule } from './common/auth/auth.module';
+import { MessagesModule } from './modules/messages/messages.module';
+import { ChatsModule } from './modules/chats/chats.module';
+import { RedisModule } from './common/redis/redis.module';
+import { GatewayModule } from './modules/gateway/gateway.module';
+import { GrpcChatController } from './modules/chats/grpc-chat/grpc-chat.controller';
 
 @Module({
   imports: [
@@ -14,8 +17,10 @@ import { ChatsModule } from './chats/chats.module';
     AuthModule,
     MessagesModule,
     ChatsModule,
+    RedisModule,
+    GatewayModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, GrpcChatController],
   providers: [AppService],
 })
 export class AppModule {}

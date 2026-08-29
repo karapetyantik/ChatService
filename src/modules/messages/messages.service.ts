@@ -1,14 +1,16 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { types } from 'cassandra-driver';
-import { CassandraService } from '../cassandra/cassandra.service';
+import { ClientProxy } from '@nestjs/microservices';
+import { CassandraService } from '../../common/cassandra/cassandra.service';
+import { ChatsService } from 'src/modules/chats/chats.service';
 import { SendMessageDto } from './dto/send-message.dto';
-import { ChatsService } from 'src/chats/chats.service';
 
 @Injectable()
 export class MessagesService {
   constructor(
     private readonly cassandra: CassandraService,
     private readonly chatsService: ChatsService,
+    @Inject('RABBITMQ_SERVICE') private readonly rabbitClient: ClientProxy,
   ) {}
 
   async sendMessage(senderId: string, dto: SendMessageDto) {
@@ -53,6 +55,19 @@ export class MessagesService {
       ],
       { prepare: true },
     );
+
+    const recipientIds = await this.chatsService.getMemberIds(dto.chatId);
+
+    this.rabbitClient.emit('message.sent', {
+      chatId: dto.chatId,
+      messageId: messageId.toString(),
+      senderId,
+      content: dto.content,
+      attachments: dto.attachments,
+      type,
+      createdAt,
+      recipientIds,
+    });
 
     return {
       chatId: dto.chatId,

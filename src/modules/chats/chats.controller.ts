@@ -8,7 +8,7 @@ import {
   Param,
   Delete,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { JwtAuthGuard } from '../../common/auth/jwt-auth.guard';
 import { ChatsService } from './chats.service';
 import { CreateChatDto } from './dto/creat-chat.dto';
 import { AddMembersDto } from './dto/add-members.dto';
@@ -44,5 +44,14 @@ export class ChatsController {
     @Param('userId') userId: string,
   ) {
     return this.chatsService.removeMember(chatId, req.user.userId, userId);
+  }
+
+  @Post(':chatId/read')
+  markAsRead(
+    @Req() req: any,
+    @Param('chatId') chatId: string,
+    @Body('messageId') messageId: string,
+  ) {
+    return this.chatsService.markAsRead(chatId, req.user.userId, messageId);
   }
 }
