@@ -4,10 +4,12 @@ import { ClientProxy } from '@nestjs/microservices';
 import { CassandraService } from '../../common/cassandra/cassandra.service';
 import { ChatsService } from 'src/modules/chats/chats.service';
 import { SendMessageDto } from './dto/send-message.dto';
+import { MediaClientService } from '../media-client/media-client.service';
 
 @Injectable()
 export class MessagesService {
   constructor(
+    private readonly mediaClient: MediaClientService,
     private readonly cassandra: CassandraService,
     private readonly chatsService: ChatsService,
     @Inject('RABBITMQ_SERVICE') private readonly rabbitClient: ClientProxy,
@@ -35,6 +37,21 @@ export class MessagesService {
       INSERT INTO messages (chat_id, message_id, sender_id, content, created_at, type, attachments)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `;
+
+    if (dto.attachments?.length) {
+      for (const attachment of dto.attachments) {
+        const verified = await this.mediaClient.verifyMedia(
+          attachment.mediaId,
+          senderId,
+        );
+        if (!verified.valid) {
+          throw new BadRequestException(
+            `Вложение ${attachment.mediaId} не найдено или не принадлежит вам`,
+          );
+        }
+        attachment.url = verified.url;
+      }
+    }
 
     await this.cassandra.client.execute(
       query,

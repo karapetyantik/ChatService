@@ -5,9 +5,11 @@ import { MessagesService } from 'src/modules/messages/messages.service';
 import { MessagesController } from 'src/modules/messages/messages.controller';
 import { CassandraModule } from '../../common/cassandra/cassandra.module';
 import { ChatsModule } from '../chats/chats.module';
+import { MediaClientModule } from '../media-client/media-client.module';
 
 @Module({
   imports: [
+    MediaClientModule,
     CassandraModule,
     ChatsModule,
     ClientsModule.registerAsync([

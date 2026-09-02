@@ -9,6 +9,7 @@ import { ChatsModule } from './modules/chats/chats.module';
 import { RedisModule } from './common/redis/redis.module';
 import { GatewayModule } from './modules/gateway/gateway.module';
 import { GrpcChatController } from './modules/chats/grpc-chat/grpc-chat.controller';
+import { MediaClientModule } from './modules/media-client/media-client.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { GrpcChatController } from './modules/chats/grpc-chat/grpc-chat.controll
     ChatsModule,
     RedisModule,
     GatewayModule,
+    MediaClientModule,
   ],
   controllers: [AppController, GrpcChatController],
   providers: [AppService],
