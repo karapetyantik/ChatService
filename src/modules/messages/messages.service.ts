@@ -33,11 +33,6 @@ export class MessagesService {
         : dto.attachments[0].type
       : 'text';
 
-    const query = `
-      INSERT INTO messages (chat_id, message_id, sender_id, content, created_at, type, attachments)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `;
-
     if (dto.attachments?.length) {
       for (const attachment of dto.attachments) {
         const verified = await this.mediaClient.verifyMedia(
@@ -50,8 +45,14 @@ export class MessagesService {
           );
         }
         attachment.url = verified.url;
+        attachment.placeholder = verified.placeholder;
       }
     }
+
+    const query = `
+    INSERT INTO messages (chat_id, message_id, sender_id, content, created_at, type, attachments)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `;
 
     await this.cassandra.client.execute(
       query,
@@ -68,6 +69,7 @@ export class MessagesService {
           type: a.type,
           file_name: a.fileName ?? null,
           size_bytes: a.sizeBytes ?? null,
+          placeholder: a.placeholder ?? null,
         })) ?? null,
       ],
       { prepare: true },

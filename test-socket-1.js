@@ -2,7 +2,7 @@
 const { io } = require('socket.io-client');
 
 const token =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjYmZhZDM5Ni02ZDU4LTQ5OTMtOTE0Zi0xNjg5OWM2NzY5NWUiLCJlbWFpbCI6IjFAZXRoZXJlYWwuZW1haWwiLCJpYXQiOjE3ODc5OTM1MjIsImV4cCI6MTc4Nzk5NDQyMn0.bJdg72HRPTaWvirNwIoRa0f8oTubme06jR6DX0OwJYQ';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjYmZhZDM5Ni02ZDU4LTQ5OTMtOTE0Zi0xNjg5OWM2NzY5NWUiLCJlbWFpbCI6IjFAZXRoZXJlYWwuZW1haWwiLCJpYXQiOjE3ODg0NDEwNjIsImV4cCI6MTc4ODQ0MTk2Mn0.WB1EyZ4GBEBXaqZKy-hc0I735WhPsBJWdtJzjpuoGfc';
 
 const socket = io('http://localhost:3002', {
   auth: { token },

@@ -29,6 +29,9 @@ export class AttachmentDto {
   @IsOptional()
   @IsInt()
   sizeBytes?: number;
+
+  @IsOptional()
+  placeholder?: string;
 }
 
 export class SendMessageDto {

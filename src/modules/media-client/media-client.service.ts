@@ -4,6 +4,7 @@ import { firstValueFrom, Observable } from 'rxjs';
 
 interface MediaInternalGrpcService {
   verifyMedia(data: { mediaId: string; uploaderId: string }): Observable<{
+    placeholder: any;
     valid: boolean;
     url: string;
     mimeType: string;
