@@ -1,262 +1,238 @@
-# ChatsService — документация
+# ChatService — подробная документация (все файлы)
 
-Сервис управления чатами (личными и групповыми): создание чатов, управление участниками, отметки о прочтении сообщений и предоставление данных о членстве другим микросервисам по gRPC. Является ядром микросервиса `Chat`, к которому по gRPC обращаются другие сервисы (например, `ReactionsService` из микросервиса реакций — см. документацию `ReactionsService`).
-
----
-
-## 1. Общее описание
-
-Модуль `ChatsModule` объединяет:
-
-- **`ChatsController`** — REST-эндпоинты `/chats/*` для клиентских приложений;
-- **`GrpcChatController`** — внутренний gRPC-контроллер (`ChatInternal`), реализующий контракт из `chat.proto` для других микросервисов;
-- **`ChatsService`** — вся бизнес-логика, общая для обоих контроллеров.
-
-### 1.1. Зависимости `ChatsService`
-
-| Зависимость | Назначение |
-|---|---|
-| `CassandraService` | Хранилище данных о чатах, участниках и статусах прочтения |
-| `ClientProxy` (`RABBITMQ_SERVICE`) | Публикация события `chat.read` при отметке сообщений прочитанными |
-
-### 1.2. Модель данных (таблицы Cassandra, судя по запросам)
-
-Явной схемы (`CREATE TABLE`) в предоставленном коде нет, но по CQL-запросам можно восстановить структуру:
-
-| Таблица | Ключевые поля (предположительно) | Назначение |
-|---|---|---|
-| `chats` | `chat_id` (PK) | Метаданные чата: `type`, `title`, `created_by`, `created_at` |
-| `chat_members` | `chat_id` + `user_id` (составной PK) | Участники чата и их роль (`role`), дата вступления (`joined_at`) |
-| `user_chats` | `user_id` + `chat_id` (составной PK) | Обратный индекс: список чатов пользователя (денормализация для быстрого `getUserChats`) |
-| `chat_read_state` | `user_id` + `chat_id` (составной PK) | Последнее прочитанное сообщение пользователя в чате (`last_read_message_id`, `updated_at`) |
-
-Таблицы `chat_members` и `user_chats` — классический для Cassandra паттерн денормализации «две таблицы под два разных паттерна доступа» (по чату → участники; по пользователю → чаты), так как Cassandra не поддерживает произвольные `JOIN`.
+Ядро системы обмена сообщениями: чаты, участники, сообщения, история, доставка в реальном времени по WebSocket, gRPC-контракт для других сервисов. Хранилище — ScyllaDB/Cassandra. Реальный самый «многосоставной» сервис в системе: HTTP REST, WebSocket Gateway, gRPC-сервер (для `ReactionsService`), gRPC-клиент (к `MediaService`), RabbitMQ publisher и consumer одновременно.
 
 ---
 
-## 2. `ChatsController` (REST)
+## 1. Дерево модуля
 
-Весь контроллер защищён `@UseGuards(JwtAuthGuard)`.
-
-### 2.1. `POST /chats` — `create(req, dto)`
-→ `createChat(req.user.userId, dto)`. Создатель чата определяется из JWT, а не из тела запроса.
-
-### 2.2. `GET /chats` — `myChats(req)`
-→ `getUserChats(req.user.userId)`. Возвращает список чатов текущего пользователя.
-
-### 2.3. `POST /chats/:chatId/members` — `addMembers(req, chatId, dto)`
-→ `addMembers(chatId, req.user.userId, dto.memberIds)`. Добавление участников в групповой чат (только администратором).
-
-### 2.4. `DELETE /chats/:chatId/members/:userId` — `removeMember(req, chatId, userId)`
-→ `removeMember(chatId, req.user.userId, userId)`. Удаление участника (только администратором, не для самого себя).
-
-### 2.5. `POST /chats/:chatId/read` — `markAsRead(req, chatId, messageId)`
-→ `markAsRead(chatId, req.user.userId, messageId)`. `messageId` читается напрямую из тела запроса (`@Body('messageId')`), без DTO и без валидации формата.
-
----
-
-## 3. `GrpcChatController` (внутренний gRPC-контракт)
-
-Реализует сервис `ChatInternal` из `chat.proto`, вызываемый **другими** микросервисами (например, `Reactions`) напрямую, в обход HTTP и без `JwtAuthGuard` — доверие обеспечивается тем, что gRPC-эндпоинт доступен только внутри приватной сети микросервисов.
-
-```proto
-service ChatInternal {
-  rpc GetChatMembers (ChatIdRequest) returns (MembersResponse);
-  rpc IsMember (MembershipRequest) returns (MembershipResponse);
-}
+```
+src/
+├── main.ts
+├── app.module.ts / app.controller.ts / app.service.ts
+├── common/
+│   ├── auth/       (jwt.strategy.ts, jwt-auth.guard.ts, auth.module.ts)
+│   ├── cassandra/  (cassandra.module.ts, cassandra.service.ts)
+│   └── redis/      (redis.module.ts, redis.service.ts)
+├── proto/
+│   ├── chat.proto   — контракт ChatInternal (сервер здесь)
+│   └── media.proto  — контракт MediaInternal (клиент здесь)
+└── modules/
+    ├── chats/
+    │   ├── chats.module.ts / chats.controller.ts / chats.service.ts
+    │   ├── dto/ (creat-chat.dto.ts, add-members.dto.ts)
+    │   └── grpc-chat/grpc-chat.controller.ts
+    ├── messages/
+    │   ├── messages.module.ts / messages.controller.ts / messages.service.ts
+    │   └── dto/send-message.dto.ts
+    ├── media-client/
+    │   ├── media-client.module.ts
+    │   └── media-client.service.ts     — gRPC-клиент к MediaService
+    └── gateway/
+        ├── gateway.module.ts / chat.gateway.ts / gateway.service.ts
+        ├── adapters/redis-io.adapter.ts
+        └── delivery/delivery.controller.ts
 ```
 
-| gRPC-метод | Делегирует в | Возвращает |
-|---|---|---|
-| `GetChatMembers({ chatId })` | `chatsService.getMemberIds(chatId)` | `{ memberIds: string[] }` |
-| `IsMember({ chatId, userId })` | `chatsService.isMember(chatId, userId)` | `{ isMember: boolean }` |
+---
 
-**Важно:** ни `getMemberIds`, ни `isMember` не проверяют, существует ли вообще чат с таким `chatId` — при несуществующем `chatId` `isMember` просто вернёт `false` (пустой результат SELECT), а `getMemberIds` — пустой массив, без ошибки `NotFoundException`.
+## 2. `main.ts` — точка входа (самая насыщенная среди всех сервисов)
+
+Поднимает сразу **четыре** транспорта:
+
+1. **HTTP** — обычный REST через `NestFactory.create`, `ValidationPipe` глобально.
+2. **WebSocket (Socket.IO) с Redis-адаптером** — создаётся `RedisIoAdapter`, вызывается `connectToRedis(REDIS_HOST, REDIS_PORT)`, затем `app.useWebSocketAdapter(redisIoAdapter)`. Redis здесь служит **pub/sub шиной между инстансами** Socket.IO — если сервис масштабирован на несколько подов, событие, отправленное одним инстансом, долетит до сокетов, подключённых к другому инстансу.
+3. **RabbitMQ-консьюмер**: `Transport.RMQ`, очередь `chat_events` (durable) — сервис слушает события `message.sent`, `message.reaction`, `chat.read` (все они, в том числе, публикуются им же самим — см. ниже) для доставки через WebSocket.
+4. **gRPC-сервер**: `Transport.GRPC`, `package: 'chat'`, `protoPath: chat.proto`, слушает `0.0.0.0:5001` — это то, к чему обращается `ReactionsService` через `ChatsClientService`.
+
+Порт HTTP — `PORT`, по умолчанию `3002`.
+
+## 3. `app.module.ts`
+
+Импортирует: `ConfigModule` (global), `CassandraModule`, `AuthModule`, `MessagesModule`, `ChatsModule`, `RedisModule`, `GatewayModule`, `MediaClientModule`. Отдельно регистрирует `GrpcChatController` на уровне **корневого** модуля приложения (`controllers: [AppController, GrpcChatController]`) — при этом тот же `GrpcChatController` уже зарегистрирован и внутри `ChatsModule` (см. раздел 8, замечания) — потенциальное дублирование регистрации контроллера.
+
+## 4. `common/auth/`, `common/redis/`
+
+Идентичны по коду соответствующим модулям в других сервисах (общий `JWT_SECRET`, тот же `ioredis`-обёртка).
+
+## 5. `common/cassandra/` — `CassandraService`, `CassandraModule`
+
+- Подключается к ScyllaDB/Cassandra через `cassandra-driver`: `contactPoints: [SCYLLA_CONTACT_POINT]`, `localDataCenter: 'datacenter1'` (захардкожено), `keyspace: SCYLLA_KEYSPACE`, порт — `SCYLLA_PORT` (по умолчанию `9042`).
+- `onModuleInit` → `client.connect()`; `onModuleDestroy` → `client.shutdown()`.
+- `client` — публичное свойство, используется напрямую (`chatsService`/`messagesService` формируют «сырые» CQL-запросы через `cassandra.client.execute`/`batch`).
+
+## 6. `modules/media-client/` — gRPC-клиент к `MediaService` (новый по сравнению с ранее задокументированным)
+
+- `MediaClientModule` регистрирует `ClientsModule` под именем `MEDIA_GRPC_SERVICE`, транспорт `GRPC`, `package: 'media'`, `protoPath: dist/proto/media.proto` (обратите внимание — путь на **скомпилированный** `dist`, а не `src`, то есть proto-файл копируется в `dist` при сборке), `url: MEDIA_SERVICE_GRPC_URL`.
+- `MediaClientService.verifyMedia(mediaId, uploaderId)` — вызывает удалённый метод `MediaInternal.VerifyMedia` (описанный в `media.proto`), оборачивая `Observable` в `Promise` через `firstValueFrom`. Возвращает `{ valid, url, mimeType, placeholder }`.
+- Используется `MessagesService` для проверки, что вложения к сообщению существуют и принадлежат отправителю, прежде чем считать сообщение отправленным (см. раздел 12).
+
+## 7. `proto/chat.proto`, `proto/media.proto`
+
+- `chat.proto` — контракт `ChatInternal` (`GetChatMembers`, `IsMember`) — **сервер** этого контракта реализован здесь же (`GrpcChatController`), клиент — в `ReactionsService`.
+- `media.proto` — контракт `MediaInternal` (`VerifyMedia`) — **клиент** этого контракта здесь (`MediaClientService`), сервер — в `MediaService`.
 
 ---
 
-## 4. `ChatsService` — методы
+## 8. `modules/chats/` — управление чатами
 
-### 4.1. `createChat(creatorId, dto: CreateChatDto)`
+### 8.1. `chats.module.ts`
+Импортирует `CassandraModule`, регистрирует `ClientsModule` (`RABBITMQ_SERVICE`, очередь `chat_events`). Controllers: `ChatsController`, `GrpcChatController`. Providers: `ChatsService`, `GrpcChatController`.
 
-Создаёт новый чат (личный или групповой).
+**Замечание:** `GrpcChatController` перечислен и в `controllers`, и в `providers` **этого** модуля, а также отдельно зарегистрирован в `controllers` корневого `AppModule` — это тройное упоминание одного класса в конфигурации DI избыточно и потенциально указывает на неаккуратный рефакторинг (изначально, вероятно, gRPC-контроллер регистрировался прямо в `AppModule`, затем был перенесён в `ChatsModule`, но старая регистрация не была убрана).
 
-**Логика:**
-1. Если `dto.type === 'direct'`, требует ровно одного собеседника в `memberIds` — иначе `BadRequestException`.
-2. Генерирует `chatId` (`types.Uuid.random()` из `cassandra-driver`).
-3. Формирует список участников: создатель получает роль `admin`, остальные (после дедупликации через `Set` и исключения самого создателя, если он случайно передан в `memberIds`) — роль `member`.
-4. Вставляет запись в `chats` (`chat_id`, `type`, `title`, `created_by`, `created_at`).
-5. Батчем (`cassandra.client.batch`) вставляет по две записи на каждого участника: в `chat_members` (участники конкретного чата) и в `user_chats` (обратный индекс «чаты пользователя»).
-6. Возвращает объект с `chatId` (строкой), `creatorId`, `type`, `title` и полным списком `members` (с ролями).
+### 8.2. DTO — `CreateChatDto`, `AddMembersDto`
+Без изменений относительно ранее задокументированной версии: `type` (`direct`/`group`), `title` (опционально, до 100 симв.), `memberIds` (массив UUID v4, минимум 1 элемент).
 
-**Исключения:**
-- `BadRequestException` — личный чат с числом собеседников ≠ 1.
+### 8.3. `chats.controller.ts` — REST `/chats/*`
+Без изменений: `POST /chats`, `GET /chats`, `POST /:chatId/members`, `DELETE /:chatId/members/:userId`, `POST /:chatId/read`. Весь контроллер под `JwtAuthGuard`.
 
-**Замечание:** для `type: 'direct'` сервис не проверяет, не существует ли уже личный чат между этими двумя пользователями — при повторном вызове будет создан **новый** дублирующий личный чат.
+### 8.4. `chats.service.ts` — бизнес-логика
+Идентична ранее задокументированной версии: `createChat`, `getUserChats`, `isMember`, `assertMember`, `getMemberRole`, `assertAdmin`, `getChat`, `addMembers`, `removeMember`, `getMemberIds`, `markAsRead`, `getReadState`. Полное описание методов, модели данных (`chats`, `chat_members`, `user_chats`, `chat_read_state`) и найденных проблем — см. документ «ChatsService» (создание дублей `direct`-чатов, `removeMember` не проверяет тип/существование чата, `addMembers`/`removeMember` не публикуют события и т.д.) — все замечания остаются в силе.
 
-### 4.2. `getUserChats(userId)`
-
-`SELECT * FROM user_chats WHERE user_id = ?` — возвращает «сырые» строки денормализованной таблицы (`chat_id`, `joined_at` и то, что ещё в ней хранится), **без** метаданных чата (без `title`, `type` и т.д.) — клиенту, скорее всего, потребуется дополнительный запрос `getChat` на каждый `chat_id`, если нужны подробности (N+1-паттерн, если он не решается отдельно на фронтенде/агрегирующем слое).
-
-### 4.3. `isMember(chatId, userId): Promise<boolean>`
-
-`SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id = ?` → `true`, если найдена хотя бы одна строка. Базовая проверка членства, используется как внутри REST-методов, так и через gRPC.
-
-### 4.4. `assertMember(chatId, userId): Promise<void>`
-
-Обёртка над `isMember`, бросающая `ForbiddenException('Вы не состоите в этом чате')`, если пользователь не участник. Используется в `markAsRead`.
-
-### 4.5. `getMemberRole(chatId, userId): Promise<string | null>`
-
-`SELECT role FROM chat_members ...` — возвращает роль (`admin`/`member`) или `null`, если пользователь не состоит в чате.
-
-### 4.6. `assertAdmin(chatId, userId): Promise<void>`
-
-Через `getMemberRole` проверяет, что роль пользователя — `admin`, иначе `ForbiddenException('Только администратор группы может выполнить это действие')`. Используется в `addMembers` и `removeMember`.
-
-**Замечание:** если пользователь вообще не состоит в чате, `getMemberRole` вернёт `null`, что тоже не равно `'admin'` — в этом случае `assertAdmin` корректно выбросит `ForbiddenException`, но с формулировкой «только администратор», хотя точнее было бы отдельное сообщение «вы не состоите в чате».
-
-### 4.7. `getChat(chatId)`
-
-`SELECT * FROM chats WHERE chat_id = ?`. Если строка не найдена — `NotFoundException('Чат не найден')`. Возвращает единственную найденную строку (`result.first()`).
-
-### 4.8. `addMembers(chatId, requesterId, newMemberIds)`
-
-Добавление новых участников в **групповой** чат.
-
-**Логика:**
-1. Загружает чат (`getChat`) — если не найден, всплывает `NotFoundException` из `getChat`.
-2. Проверяет `chat.type === 'group'` — иначе `BadRequestException('Добавлять участников можно только в групповой чат')` (в личный чат нельзя добавлять третьих лиц).
-3. Проверяет, что `requesterId` — админ чата (`assertAdmin`).
-4. Дедуплицирует `newMemberIds` и исключает самого `requesterId` из списка.
-5. Если после этого список пуст — `BadRequestException('Нет новых участников для добавления')`.
-6. Параллельно (`Promise.all`) проверяет, кто из указанных пользователей уже состоит в чате, и оставляет только тех, кто ещё не состоит.
-7. Если добавлять некого (все уже участники) — `ConflictException('Все указанные пользователи уже состоят в чате')`.
-8. Батчем вставляет записи в `chat_members` и `user_chats` для каждого нового участника с ролью `member`.
-9. Возвращает `{ chatId, addedMemberIds }`.
-
-**Исключения:** `NotFoundException`, `BadRequestException` (дважды, по разным причинам), `ForbiddenException` (не админ), `ConflictException`.
-
-**Замечание:** метод не публикует никакого события (в отличие от `markAsRead`) — участники не получают уведомление о своём добавлении в чат через RabbitMQ/WebSocket на уровне этого сервиса.
-
-### 4.9. `removeMember(chatId, requesterId, targetUserId)`
-
-Удаление участника из чата администратором.
-
-**Логика:**
-1. Проверяет, что `requesterId` — админ (`assertAdmin`). Заметьте: в отличие от `addMembers`, здесь **не проверяется существование чата и его тип** (`getChat` не вызывается) — если `chatId` не существует, `assertAdmin`/`getMemberRole` просто не найдёт роль и выбросит `ForbiddenException`, а не `NotFoundException`, что может ввести в заблуждение при отладке.
-2. Запрещает удалять самого себя: `BadRequestException('Нельзя удалить самого себя таким способом — используйте выход из группы')` (при этом отдельного метода «выйти из группы» в предоставленном коде нет).
-3. Проверяет, что `targetUserId` действительно состоит в чате — иначе `NotFoundException('Этот пользователь не состоит в чате')`.
-4. Батчем удаляет записи из `chat_members` и `user_chats`.
-5. Возвращает `{ chatId, removedUserId }`.
-
-**Замечание:** как и `addMembers`, не публикует событие об удалении участника.
-
-### 4.10. `getMemberIds(chatId): Promise<string[]>`
-
-`SELECT user_id FROM chat_members WHERE chat_id = ?`, приводит каждый `user_id` к строке. Используется как внутри сервиса (`markAsRead`), так и через gRPC (`GetChatMembers`) для других микросервисов (например, чтобы `ReactionsService` знал, кому разослать уведомление о новой реакции).
-
-### 4.11. `markAsRead(chatId, userId, messageId)`
-
-Отмечает сообщение как прочитанное текущим пользователем.
-
-**Логика:**
-1. Проверяет членство (`assertMember`) — иначе `ForbiddenException`.
-2. Записывает/обновляет `chat_read_state` (`INSERT` — в Cassandra `INSERT` с тем же ключом фактически является upsert'ом).
-3. Получает список участников чата (`getMemberIds`).
-4. Публикует в RabbitMQ событие `chat.read` с `{ chatId, userId, lastReadMessageId, recipientIds }` — по аналогии с `message.reaction` из `ReactionsService`, вероятно, для доставки статуса «прочитано» через WebSocket-шлюз (`gateway`-модуль).
-5. Возвращает `{ chatId, lastReadMessageId }`.
-
-**Замечание:** метод не проверяет, что `messageId` действительно существует и относится к данному чату — можно передать произвольную строку в качестве `lastReadMessageId`, и она будет сохранена без валидации (`@Body('messageId')` в контроллере тоже её не проверяет).
-
-### 4.12. `getReadState(userId, chatId)`
-
-`SELECT last_read_message_id, updated_at FROM chat_read_state WHERE user_id = ? AND chat_id = ?`. Возвращает найденную строку либо `null`. Не имеет собственного REST-эндпоинта в `ChatsController` — судя по всему, вызывается из другого модуля (например, `gateway` или `messages`) для расчёта статуса прочтения сообщений.
+### 8.5. `grpc-chat/grpc-chat.controller.ts` — сервер `ChatInternal`
+Без изменений: `GetChatMembers` → `getMemberIds`, `IsMember` → `isMember`. Не проверяет существование чата (несуществующий `chatId` тихо даёт `isMember: false` / пустой `memberIds`).
 
 ---
 
-## 5. DTO
+## 9. `modules/messages/` — отправка и история сообщений (не документировался ранее отдельно)
 
-### 5.1. `CreateChatDto`
+### 9.1. `dto/send-message.dto.ts`
+
 ```ts
-class CreateChatDto {
-  @IsIn(['direct', 'group']) type!: 'direct' | 'group';
-  @IsOptional() @IsString() @MaxLength(100) title?: string;
-  @IsArray() @ArrayMinSize(1) @IsUUID('4', { each: true }) memberIds!: string[];
+class AttachmentDto {
+  @IsUUID() mediaId!: string;
+  @IsUrl() url!: string;
+  @IsIn(['image', 'file', 'gif', 'video']) type!: string;
+  @IsOptional() @IsString() fileName?: string;
+  @IsOptional() @IsInt() sizeBytes?: number;
+  @IsOptional() placeholder?: string;
+}
+
+class SendMessageDto {
+  @IsUUID() chatId!: string;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(4000) content?: string;
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => AttachmentDto) attachments?: AttachmentDto[];
 }
 ```
-- `type` — ограничен строго значениями `direct`/`group`.
-- `title` — опционален, до 100 символов (уместно требовать для `group`, но валидация «title обязателен для group» на уровне DTO отсутствует — это проверяется только косвенно логикой `direct` в сервисе).
-- `memberIds` — минимум один элемент, каждый — UUID v4.
 
-### 5.2. `AddMembersDto`
-```ts
-class AddMembersDto {
-  @IsArray() @ArrayMinSize(1) @IsUUID('4', { each: true }) memberIds!: string[];
-}
-```
-Аналогичная валидация списка добавляемых участников.
+- `content` опционален (сообщение может состоять только из вложений).
+- `AttachmentDto.url` должен быть валидным URL **на входе** — однако в `messages.service.ts` (см. ниже) это поле **перезаписывается** результатом `verifyMedia` перед сохранением, то есть присланный клиентом `url` фактически используется только для прохождения валидации DTO и тут же отбрасывается.
+- `placeholder` в DTO не типизирован и не валидируется (`@IsOptional() placeholder?: string` без явного `@IsString()`), что означает `class-validator` его вообще не проверяет — фактически поле принимает что угодно, включая типы, отличные от строки, если `forbidNonWhitelisted` его не отсеет (поле присутствует в классе, поэтому не отсеивается).
+
+### 9.2. `messages.module.ts`
+Импортирует `MediaClientModule`, `CassandraModule`, `ChatsModule` (для использования `ChatsService.assertMember`/`getMemberIds` напрямую как провайдера), регистрирует `RABBITMQ_SERVICE` (очередь `chat_events`). Providers: `MessagesService`. Controllers: `MessagesController`.
+
+### 9.3. `messages.controller.ts` — REST
+
+| Метод | HTTP | Роут | Guard |
+|---|---|---|---|
+| `send` | POST | `/chats/messages` | `JwtAuthGuard` |
+| `history` | GET | `/chats/:chatId/messages` | `JwtAuthGuard` |
+
+**Замечание по роутингу:** контроллер зарегистрирован как `@Controller('chats')`, а метод `send` — `@Post('messages')`, что вместе даёт путь `POST /chats/messages` (а не, например, `POST /chats/:chatId/messages`, как можно было бы ожидать по аналогии с `history`). `chatId` для отправки передаётся не в URL, а в теле (`dto.chatId`) — асимметрия по сравнению с чтением истории, где `chatId` — параметр пути. Не баг, но неконсистентный дизайн API.
+
+`history`: `limit` — необязательный query-параметр, парсится через `parseInt(limit, 10)` без проверки на `NaN` или отрицательные значения — если передать `limit=abc`, `parseInt` вернёт `NaN`, что уйдёт в CQL-запрос `LIMIT ?` и, вероятнее всего, приведёт к ошибке на уровне драйвера Cassandra, а не к контролируемой `400 Bad Request`.
+
+### 9.4. `messages.service.ts` — бизнес-логика
+
+**Зависимости:** `MediaClientService`, `CassandraService`, `ChatsService`, `ClientProxy('RABBITMQ_SERVICE')`.
+
+#### `sendMessage(senderId, dto)`
+1. Требует хотя бы `content` **или** непустой `attachments` — иначе `BadRequestException`.
+2. `chatsService.assertMember(dto.chatId, senderId)` — проверка членства (межмодульный вызов сервиса напрямую, не по сети, так как `ChatsModule` импортирован как обычный Nest-модуль).
+3. Генерирует `messageId` через `types.TimeUuid.now()` (Cassandra TimeUUID — сортируемый по времени идентификатор, удобен для истории по возрастанию/убыванию времени).
+4. Определяет `type` сообщения: `'text'`, если вложений нет; `'mixed'`, если есть и текст, и вложения; иначе — тип первого вложения (`image`/`file`/`gif`/`video`) — то есть при нескольких разнотипных вложениях **без текста** тип сообщения определяется по **первому** вложению, а не отражает смешанный состав (см. замечания).
+5. Если есть вложения — для **каждого** вызывает `mediaClient.verifyMedia(attachment.mediaId, senderId)` (gRPC к `MediaService`). Если `!verified.valid` — `BadRequestException('Вложение {mediaId} не найдено или не принадлежит вам')`. При успехе — **перезаписывает** `attachment.url` и `attachment.placeholder` результатом от `MediaService` (то есть URL, присланный клиентом в DTO, полностью игнорируется — используется только для прохождения `@IsUrl()`-валидации, значения не имеющей смысловой роли далее).
+6. Вставляет запись в `messages` (Cassandra): `chat_id`, `message_id`, `sender_id`, `content`, `created_at`, `type`, `attachments` (массив вложенных UDT/map-структур с полями `media_id`, `url`, `type`, `file_name`, `size_bytes`, `placeholder`).
+7. Получает список участников чата (`chatsService.getMemberIds`) и публикует `rabbitClient.emit('message.sent', { chatId, messageId, senderId, content, attachments, type, createdAt, recipientIds })`.
+8. Возвращает объект сообщения клиенту.
+
+**Замечание (производительность):** проверка вложений выполняется **последовательно** в цикле `for...of` с `await` внутри — при нескольких вложениях каждое ждёт отдельный gRPC round-trip по очереди, а не параллельно (`Promise.all`), что увеличивает время ответа пропорционально числу вложений.
+
+**Замечание (консистентность):** если сообщение содержит несколько вложений и одно из них не проходит `verifyMedia` (например, третье из пяти), исключение выбрасывается **после** того, как предыдущие вложения уже были «верифицированы» (по сути, ничего не изменено в БД до этого момента — `INSERT` происходит только после цикла, так что в этом смысле откатывать нечего, операция атомарна по отношению к записи в Cassandra). Но сама проверка не транзакционна на уровне `MediaService` — если между проверкой и `INSERT` файл окажется удалён/испорчен, это не будет обнаружено повторно.
+
+#### `getHistory(chatId, userId, limit = 50)`
+Проверка членства (`assertMember`) → `SELECT * FROM messages WHERE chat_id = ? LIMIT ?`. Простая постраничность через `LIMIT` без курсора/пагинации по времени — при большом объёме сообщений в чате нельзя получить «следующую страницу» отдельно от первых `limit` записей (нет `paging state`/`WHERE message_id < ?`), то есть **пагинация как таковая не реализована**, доступен только «верхний срез» из `limit` сообщений.
 
 ---
 
-## 6. Используемые сообщения RabbitMQ
+## 10. `modules/gateway/` — доставка в реальном времени (WebSocket)
 
-| Событие | Где публикуется | Payload |
+### 10.1. `adapters/redis-io.adapter.ts`
+
+- `RedisIoAdapter extends IoAdapter` — переопределяет `createIOServer`, подключая `@socket.io/redis-adapter` поверх пары клиентов `ioredis` (`pubClient`/`subClient = pubClient.duplicate()`).
+- Цель — горизонтальное масштабирование Socket.IO: без этого адаптера сообщение, отправленное конкретному `socketId`, было бы видно только тому инстансу Node.js, к которому этот сокет физически подключён.
+
+### 10.2. `chat.gateway.ts` — `ChatGateway`
+
+- `@WebSocketGateway({ cors: { origin: '*' } })` — CORS открыт для всех источников (см. замечания — в проде обычно сужают до конкретных доменов).
+- `handleConnection(client)`:
+  1. Достаёт JWT либо из `client.handshake.auth.token`, либо из заголовка `Authorization` (`Bearer ...`).
+  2. Верифицирует токен через `jwtService.verifyAsync` (тот же `JWT_SECRET`, что и HTTP-guard, — общий на всю систему).
+  3. При успехе — сохраняет `userId` в `client.data.userId`, добавляет `client.id` в Redis-множество `` `user_sockets:${userId}` `` (`SADD`) — так поддерживается связь «пользователь → все его активные сокеты» (несколько вкладок/устройств).
+  4. При ошибке — логирует предупреждение и обрывает соединение (`client.disconnect()`).
+- `handleDisconnect(client)` — убирает `client.id` из того же множества (`SREM`).
+
+**Замечание:** множество `user_sockets:{userId}` в Redis не имеет TTL — при аварийном обрыве соединения без штатного `disconnect`-события (например, при падении процесса Node.js) «осиротевшие» `socketId` могут накапливаться в множестве бессрочно, если Socket.IO/Redis-адаптер не гарантируют вызов `handleDisconnect` в 100% случаев сбоев.
+
+### 10.3. `delivery/delivery.controller.ts` — `DeliveryController`
+
+Слушает **все три** события из очереди `chat_events` и раздаёт их подключённым сокетам через Redis-множества `user_sockets:{userId}`:
+
+| Событие | Кому рассылается | Имя WS-события клиенту |
 |---|---|---|
-| `chat.read` | `markAsRead` | `{ chatId, userId, lastReadMessageId, recipientIds }` |
+| `message.sent` | всем `recipientIds` | `'message'` |
+| `message.reaction` | всем `recipientIds` | `'reaction'` |
+| `chat.read` | всем `recipientIds`, **кроме** самого `event.userId` (кто отметил прочтение) | `'read'` |
 
-Очередь: `chat_events` (durable), транспорт регистрируется через `ClientsModule.registerAsync` с `Transport.RMQ`, URL брокера — из `RABBITMQ_URL`. Та же очередь `chat_events` используется модулем `Reactions` для события `message.reaction` — оба сервиса пишут в общую очередь, из которой, вероятно, читает `gateway`-модуль для рассылки клиентам по WebSocket.
+Для каждого получателя — `SMEMBERS user_sockets:{userId}` → `server.to(socketId).emit(eventName, event)` по каждому активному сокету. Если пользователь оффлайн (нет сокетов) — событие просто теряется для него (никакого fallback на push-уведомления/офлайн-очередь в этом коде не предусмотрено).
 
-**Событий, которые сервис слушает (`@EventPattern`), в `ChatsService`/`ChatsController` нет** — в отличие от `ProfileService` (слушает `user.registered`), `ChatsModule` выступает только источником событий, а не подписчиком.
+**Замечание:** `handleMessageReaction` — приходит из `ReactionsService` (`message.reaction` в очередь `chat_events`), то есть очередь `chat_events` — это **общая шина** для событий сразу от `ChatService` (`message.sent`, `chat.read`) и от `ReactionsService` (`message.reaction`); оба сервиса пишут в одну и ту же durable-очередь, из которой читает только `DeliveryController` в `ChatService`.
 
----
+### 10.4. `gateway.module.ts`
 
-## 7. Замечания и потенциальные проблемы
+Импортирует `RedisModule`, регистрирует `JwtModule.registerAsync` **только с секретом** (`{ secret: JWT_SECRET }`, без `signOptions`) — этот `JwtModule` используется исключительно для **верификации** входящих WS-токенов (`jwtService.verifyAsync`), не для выпуска новых. Providers: `ChatGateway`. Controllers: `DeliveryController`.
 
-1. **Дублирование личных чатов.** `createChat` не проверяет, существует ли уже `direct`-чат между теми же двумя пользователями — повторный вызов создаст ещё один личный чат с тем же составом участников.
-2. **`removeMember` не проверяет существование и тип чата.** В отличие от `addMembers` (который сначала вызывает `getChat` и проверяет `type === 'group'`), `removeMember` полагается только на `assertAdmin`. Формально это означает, что администратор личного (`direct`) чата теоретически может «удалить участника» из личного чата, если такая роль там вообще существует, — хотя `createChat` не позволяет добавлять третьих лиц в `direct`, инвариант не проверяется на уровне `removeMember` явно.
-3. **`addMembers`/`removeMember` не публикуют события.** Другие модули (WebSocket-шлюз, уведомления) не узнают об изменении состава участников в реальном времени, если только не опрашивают REST API. Для согласованности с `markAsRead`/реакциями стоило бы эмитить, например, `chat.members.added` / `chat.members.removed`.
-4. **`markAsRead` не валидирует `messageId`.** Ни DTO, ни сервис не проверяют, что переданный `messageId` — существующее сообщение в этом чате; отметка о прочтении может быть создана с произвольным значением.
-5. **`GrpcChatController` перечислен и в `controllers`, и в `providers` модуля.** Обычно контроллеры не добавляются в `providers` — в NestJS controllers инстанцируются отдельно через собственный механизм DI, и добавление класса-контроллера в `providers` избыточно (а в общем случае может привести к путанице или дублированию инстанцирования, в зависимости от того, инжектируется ли `GrpcChatController` где-то ещё как провайдер). Стоит убрать его из `providers`, оставив только в `controllers`.
-6. **gRPC-методы (`isMember`, `getMemberIds`) не проверяют существование чата.** Для несуществующего `chatId` `IsMember` тихо вернёт `false`, а `GetChatMembers` — пустой список, вместо явной ошибки. Для внутреннего сервис-to-сервис контракта это может маскировать баги в вызывающей стороне (например, `ReactionsService` получит `isMember: false` для опечатанного `chatId` и просто ответит `403`, вместо диагностируемой ошибки «чат не найден»).
-7. **Единообразие с `ReactionsService`:** здесь, в отличие от `ReactionsService.removeReaction`, отсутствует хоть какая-то защита от повторных быстрых кликов (rate-limit/lock через Redis) для операций типа `addMembers`/`removeMember`/`markAsRead` — но для этих операций дублирование обычно менее критично (создание дублирующей записи в Cassandra через `INSERT`/повторный upsert идемпотентно на уровне БД), так что это не обязательно недостаток.
-8. **Сообщения об ошибках захардкожены на русском** — согласуется с остальными сервисами системы (`AuthService`, `ProfileService`, `ReactionsService`), но по-прежнему без i18n-слоя.
+### 10.5. `gateway.service.ts`
+Пустой класс-заглушка (`@Injectable() export class GatewayService {}`), не содержит логики и, судя по всему, не инжектируется нигде — вероятно, остаток от шаблона генерации модуля (`nest g module`), который не был удалён.
 
 ---
 
-## 8. Взаимодействие с другими компонентами
+## 11. Модель данных Cassandra (сводно по всему сервису)
 
-```
-                     ┌──────────────────────┐        ┌───────────────────────────┐
-  HTTP (клиент)  ──▶ │   ChatsController    │        │   GrpcChatController      │ ◀── gRPC (другие сервисы,
-                     └──────────┬───────────┘        └───────────┬───────────────┘     напр. ReactionsService)
-                                │                                │
-                                └────────────────┬───────────────┘
-                                                 ▼
-                                        ┌───────────────────┐
-                                        │   ChatsService    │
-                                        └───┬───────────┬───┘
-                                            │           │
-                          Cassandra ◀───────┘           └───────▶ RabbitMQ: emit 'chat.read'
-                (chats, chat_members,                            (очередь 'chat_events')
-                 user_chats, chat_read_state)
-```
-
-- **Cassandra** — единственное хранилище состояния чатов в этом модуле.
-- **RabbitMQ (`chat_events`)** — исходящий канал для события `chat.read`; та же очередь используется `ReactionsService` для `message.reaction` — оба потребляются, судя по всему, `gateway`-модулем (WebSocket-шлюз) этого же репозитория.
-- **gRPC (`ChatInternal`)** — точка входа для других микросервисов, которым нужно узнать состав чата или проверить членство, не имея прямого доступа к таблицам Cassandra этого сервиса.
-
----
-
-## 9. Сводная таблица методов и эндпоинтов
-
-| Метод сервиса | Вызывается из | Проверка прав |
+| Таблица | Ключевые поля | Заполняется в |
 |---|---|---|
-| `createChat` | `POST /chats` | — (любой авторизованный пользователь) |
-| `getUserChats` | `GET /chats` | — |
-| `addMembers` | `POST /chats/:chatId/members` | admin + чат должен быть `group` |
-| `removeMember` | `DELETE /chats/:chatId/members/:userId` | admin |
-| `markAsRead` | `POST /chats/:chatId/read` | участник чата |
-| `isMember` | `GrpcChatController.isMember` (gRPC) | — (сам является проверкой) |
-| `getMemberIds` | `GrpcChatController.getChatMembers` (gRPC) | — |
-| `getReadState` | используется другим модулем (без REST-роута в этом контроллере) | — |
+| `chats` | `chat_id` (PK) | `ChatsService.createChat` |
+| `chat_members` | `chat_id` + `user_id` | `ChatsService.createChat` / `addMembers` / `removeMember` |
+| `user_chats` | `user_id` + `chat_id` | те же методы (обратный индекс) |
+| `chat_read_state` | `user_id` + `chat_id` | `ChatsService.markAsRead` |
+| `messages` | `chat_id` + `message_id` (TimeUUID) | `MessagesService.sendMessage` |
+
+---
+
+## 12. Интеграции — сводная таблица
+
+| Канал | Направление | Партнёр | Что передаётся |
+|---|---|---|---|
+| RabbitMQ (`chat_events`) | публикует | — | `message.sent`, `chat.read` |
+| RabbitMQ (`chat_events`) | публикует | `ReactionsService` (внешний источник) | `message.reaction` — этот сервис лишь слушает, не публикует его сам |
+| RabbitMQ (`chat_events`) | слушает | сам себя + `ReactionsService` | `message.sent`, `message.reaction`, `chat.read` → раздача по WebSocket |
+| gRPC-сервер (`ChatInternal`, порт 5001) | предоставляет | `ReactionsService` | `GetChatMembers`, `IsMember` |
+| gRPC-клиент (`MediaInternal`) | вызывает | `MediaService` | `VerifyMedia` — проверка вложений при отправке сообщения |
+| WebSocket (Socket.IO + Redis adapter) | сервер | клиентские приложения | доставка `message`/`reaction`/`read` в реальном времени |
+
+---
+
+## 13. Сводные замечания по всему сервису
+
+1. **`GrpcChatController` регистрируется трижды** (в `controllers` и `providers` `ChatsModule`, и ещё раз в `controllers` корневого `AppModule`) — избыточно, стоит оставить одну точку регистрации.
+2. **Асимметричный роутинг сообщений**: `POST /chats/messages` (тело содержит `chatId`) против `GET /chats/:chatId/messages` (параметр пути) — неконсистентный дизайн REST API.
+3. **`limit` в `history` не валидируется** — некорректное значение уйдёт напрямую в CQL-запрос вместо контролируемой ошибки `400`.
+4. **История сообщений не поддерживает постраничную навигацию** — только «верхний срез» из `limit` записей, без курсора.
+5. **`AttachmentDto.url`, присланный клиентом, отбрасывается и заменяется результатом `verifyMedia`** — само поле в DTO валидируется, но семантически избыточно (клиент не может повлиять на итоговый URL, что корректно с точки зрения безопасности, но означает, что `@IsUrl()` в DTO проверяет фактически «мусорное» значение).
+6. **Вложения проверяются последовательно, а не параллельно** — потенциальная просадка производительности при отправке сообщений с несколькими вложениями.
+7. **CORS у WebSocket-шлюза открыт на `*`** — стоит сузить в проде.
+8. **`user_sockets:{userId}` в Redis не имеет TTL** — риск накопления «мёртвых» `socketId` при нештатных обрывах соединения.
+9. **`gateway.service.ts` — неиспользуемый пустой файл**, вероятно, наследие генератора модулей.
+10. Все замечания из документа «ChatsService» по логике `chats.service.ts` (дублирование `direct`-чатов, `removeMember` без проверки типа чата, отсутствие событий при добавлении/удалении участников и т.д.) остаются в силе.
