@@ -13,6 +13,8 @@ export class MessagesService {
     private readonly cassandra: CassandraService,
     private readonly chatsService: ChatsService,
     @Inject('RABBITMQ_SERVICE') private readonly rabbitClient: ClientProxy,
+    @Inject('NOTIFICATION_SERVICE')
+    private readonly notificationClient: ClientProxy,
   ) {}
 
   async sendMessage(senderId: string, dto: SendMessageDto) {
@@ -85,6 +87,13 @@ export class MessagesService {
       attachments: dto.attachments,
       type,
       createdAt,
+      recipientIds,
+    });
+
+    this.notificationClient.emit('message.sent', {
+      chatId: dto.chatId,
+      senderId,
+      content: dto.content,
       recipientIds,
     });
 

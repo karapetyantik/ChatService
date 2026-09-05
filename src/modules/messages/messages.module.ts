@@ -26,6 +26,20 @@ import { MediaClientModule } from '../media-client/media-client.module';
         inject: [ConfigService],
       },
     ]),
+    ClientsModule.registerAsync([
+      {
+        name: 'NOTIFICATION_SERVICE',
+        useFactory: (config: ConfigService) => ({
+          transport: Transport.RMQ,
+          options: {
+            urls: [config.getOrThrow<string>('RABBITMQ_URL')],
+            queue: 'notification_events',
+            queueOptions: { durable: true },
+          },
+        }),
+        inject: [ConfigService],
+      },
+    ]),
   ],
   providers: [MessagesService],
   controllers: [MessagesController],
