@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '@common/auth/jwt-auth.guard';
+import { AuthenticatedRequest } from '@common/auth/authenticated-request.interface';
 import { MessagesService } from './messages.service';
 import { SendMessageDto } from './dto/send-message.dto';
 
@@ -18,14 +19,14 @@ export class MessagesController {
 
   @UseGuards(JwtAuthGuard)
   @Post('messages')
-  send(@Req() req: any, @Body() dto: SendMessageDto) {
+  send(@Req() req: AuthenticatedRequest, @Body() dto: SendMessageDto) {
     return this.messagesService.sendMessage(req.user.userId, dto);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get(':chatId/messages')
   history(
-    @Req() req: any,
+    @Req() req: AuthenticatedRequest,
     @Param('chatId') chatId: string,
     @Query('limit') limit?: string,
   ) {

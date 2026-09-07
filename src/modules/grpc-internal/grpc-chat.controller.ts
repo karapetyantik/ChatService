@@ -1,8 +1,10 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller, Logger, UseGuards } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
 import { ChatsService } from '@modules/chats/chats.service';
 import { MessagesService } from '@modules/messages/messages.service';
+import { InternalGrpcAuthGuard } from './internal-grpc-auth.guard';
 
+@UseGuards(InternalGrpcAuthGuard)
 @Controller()
 export class GrpcChatController {
   private readonly logger = new Logger(GrpcChatController.name);
@@ -41,10 +43,9 @@ export class GrpcChatController {
         error: '',
       };
     } catch (error) {
-      this.logger.error(
-        `Ошибка внутренней отправки сообщения: ${error.message}`,
-      );
-      return { success: false, messageId: '', error: error.message };
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Ошибка внутренней отправки сообщения: ${message}`);
+      return { success: false, messageId: '', error: message };
     }
   }
 }

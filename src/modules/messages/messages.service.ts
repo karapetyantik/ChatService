@@ -36,11 +36,14 @@ export class MessagesService {
       : 'text';
 
     if (dto.attachments?.length) {
-      for (const attachment of dto.attachments) {
-        const verified = await this.mediaClient.verifyMedia(
-          attachment.mediaId,
-          senderId,
-        );
+      const verifications = await Promise.all(
+        dto.attachments.map((attachment) =>
+          this.mediaClient.verifyMedia(attachment.mediaId, senderId),
+        ),
+      );
+
+      dto.attachments.forEach((attachment, index) => {
+        const verified = verifications[index];
         if (!verified.valid) {
           throw new BadRequestException(
             `Вложение ${attachment.mediaId} не найдено или не принадлежит вам`,
@@ -48,7 +51,7 @@ export class MessagesService {
         }
         attachment.url = verified.url;
         attachment.placeholder = verified.placeholder;
-      }
+      });
     }
 
     const query = `

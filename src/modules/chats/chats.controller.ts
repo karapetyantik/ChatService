@@ -9,8 +9,9 @@ import {
   Delete,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/auth/jwt-auth.guard';
+import { AuthenticatedRequest } from '../../common/auth/authenticated-request.interface';
 import { ChatsService } from './chats.service';
-import { CreateChatDto } from './dto/creatе-chat.dto';
+import { CreateChatDto } from './dto/create-chat.dto';
 import { AddMembersDto } from './dto/add-members.dto';
 
 @UseGuards(JwtAuthGuard)
@@ -19,18 +20,18 @@ export class ChatsController {
   constructor(private readonly chatsService: ChatsService) {}
 
   @Post()
-  create(@Req() req: any, @Body() dto: CreateChatDto) {
+  create(@Req() req: AuthenticatedRequest, @Body() dto: CreateChatDto) {
     return this.chatsService.createChat(req.user.userId, dto);
   }
 
   @Get()
-  myChats(@Req() req: any) {
+  myChats(@Req() req: AuthenticatedRequest) {
     return this.chatsService.getUserChats(req.user.userId);
   }
 
   @Post(':chatId/members')
   addMembers(
-    @Req() req: any,
+    @Req() req: AuthenticatedRequest,
     @Param('chatId') chatId: string,
     @Body() dto: AddMembersDto,
   ) {
@@ -39,7 +40,7 @@ export class ChatsController {
 
   @Delete(':chatId/members/:userId')
   removeMember(
-    @Req() req: any,
+    @Req() req: AuthenticatedRequest,
     @Param('chatId') chatId: string,
     @Param('userId') userId: string,
   ) {
@@ -48,7 +49,7 @@ export class ChatsController {
 
   @Post(':chatId/read')
   markAsRead(
-    @Req() req: any,
+    @Req() req: AuthenticatedRequest,
     @Param('chatId') chatId: string,
     @Body('messageId') messageId: string,
   ) {

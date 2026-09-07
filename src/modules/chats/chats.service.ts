@@ -9,7 +9,7 @@ import {
 import { ClientProxy } from '@nestjs/microservices';
 import { types } from 'cassandra-driver';
 import { CassandraService } from '@common/cassandra/cassandra.service';
-import { CreateChatDto } from './dto/creatе-chat.dto';
+import { CreateChatDto } from './dto/create-chat.dto';
 
 @Injectable()
 export class ChatsService {
@@ -60,7 +60,7 @@ export class ChatsService {
       creatorId,
       type: dto.type,
       title: dto.title,
-      members: memberEntries, //.map((m) => m.userId),
+      members: memberEntries,
     };
   }
 
@@ -99,7 +99,7 @@ export class ChatsService {
     if (result.rowLength === 0) {
       return null;
     }
-    return result.first().role;
+    return result.first().get('role') as string;
   }
 
   async assertAdmin(chatId: string, userId: string) {
@@ -217,7 +217,7 @@ export class ChatsService {
       [chatId],
       { prepare: true },
     );
-    return result.rows.map((row) => row.user_id.toString());
+    return result.rows.map((row) => String(row.get('user_id')));
   }
 
   async markAsRead(chatId: string, userId: string, messageId: string) {

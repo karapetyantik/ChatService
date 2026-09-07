@@ -1,12 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ChatsService } from './chats.service';
+import { CassandraService } from '@common/cassandra/cassandra.service';
 
 describe('ChatsService', () => {
   let service: ChatsService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ChatsService],
+      providers: [
+        ChatsService,
+        { provide: CassandraService, useValue: { client: {} } },
+        { provide: 'RABBITMQ_SERVICE', useValue: { emit: jest.fn() } },
+      ],
     }).compile();
 
     service = module.get<ChatsService>(ChatsService);

@@ -35,6 +35,9 @@ lerna-debug.log*
 !.vscode/launch.json
 !.vscode/extensions.json
 
+# ad-hoc local scripts with tokens/credentials — never commit these
+test-socket-*.js
+
 # dotenv environment variable files
 .env
 .env.development.local

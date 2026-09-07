@@ -14,7 +14,7 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   const redisIoAdapter = new RedisIoAdapter(app);
-  await redisIoAdapter.connectToRedis(
+  redisIoAdapter.connectToRedis(
     configService.get<string>('REDIS_HOST', 'localhost'),
     configService.get<number>('REDIS_PORT', 6379),
   );
@@ -33,7 +33,7 @@ async function bootstrap() {
     transport: Transport.GRPC,
     options: {
       package: 'chat',
-      protoPath: join(__dirname, '../src/proto/chat.proto'),
+      protoPath: join(process.cwd(), 'dist/proto/chat.proto'),
       url: '0.0.0.0:5001',
     },
   });
@@ -41,4 +41,4 @@ async function bootstrap() {
   await app.startAllMicroservices();
   await app.listen(configService.get<number>('PORT', 3002));
 }
-bootstrap();
+void bootstrap();

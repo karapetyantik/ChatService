@@ -23,6 +23,13 @@ interface MessageReactionEvent {
   recipientIds: string[];
 }
 
+interface ChatReadEvent {
+  chatId: string;
+  userId: string;
+  lastReadMessageId: string;
+  recipientIds: string[];
+}
+
 @Controller()
 export class DeliveryController {
   private readonly logger = new Logger(DeliveryController.name);
@@ -34,54 +41,40 @@ export class DeliveryController {
 
   @EventPattern('message.sent')
   async handleMessageSent(@Payload() event: MessageSentEvent) {
-    for (const userId of event.recipientIds) {
-      const socketIds = await this.redisService.client.smembers(
-        `user_sockets:${userId}`,
-      );
-
-      for (const socketId of socketIds) {
-        this.chatGateway.server.to(socketId).emit('message', event);
-      }
-
-      this.logger.log(
-        `Доставлено userId=${userId} на ${socketIds.length} сокет(ов)`,
-      );
-    }
+    await this.fanOut(event.recipientIds, 'message', event);
   }
 
   @EventPattern('message.reaction')
   async handleMessageReaction(@Payload() event: MessageReactionEvent) {
-    for (const recipientId of event.recipientIds) {
-      const socketIds = await this.redisService.client.smembers(
-        `user_sockets:${recipientId}`,
-      );
-      for (const socketId of socketIds) {
-        this.chatGateway.server.to(socketId).emit('reaction', event);
-      }
-    }
+    await this.fanOut(event.recipientIds, 'reaction', event);
     this.logger.log(
       `Реакция ${event.action} разослана по чату ${event.chatId}`,
     );
   }
 
   @EventPattern('chat.read')
-  async handleChatRead(
-    @Payload()
-    event: {
-      chatId: string;
-      userId: string;
-      lastReadMessageId: string;
-      recipientIds: string[];
-    },
+  async handleChatRead(@Payload() event: ChatReadEvent) {
+    const recipients = event.recipientIds.filter((id) => id !== event.userId);
+    await this.fanOut(recipients, 'read', event);
+  }
+
+  private async fanOut(
+    recipientIds: string[],
+    eventName: string,
+    payload: unknown,
   ) {
-    for (const recipientId of event.recipientIds) {
-      if (recipientId === event.userId) continue;
+    for (const userId of recipientIds) {
       const socketIds = await this.redisService.client.smembers(
-        `user_sockets:${recipientId}`,
+        `user_sockets:${userId}`,
       );
+
       for (const socketId of socketIds) {
-        this.chatGateway.server.to(socketId).emit('read', event);
+        this.chatGateway.server.to(socketId).emit(eventName, payload);
       }
+
+      this.logger.log(
+        `Доставлено userId=${userId} на ${socketIds.length} сокет(ов) (${eventName})`,
+      );
     }
   }
 }

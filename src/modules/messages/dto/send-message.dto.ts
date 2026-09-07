@@ -16,8 +16,11 @@ export class AttachmentDto {
   @IsUUID()
   mediaId!: string;
 
+  // Populated server-side from MediaService's verified URL — never trust a
+  // client-supplied value here, so it isn't required (or validated) on input.
+  @IsOptional()
   @IsUrl()
-  url!: string;
+  url?: string;
 
   @IsIn(['image', 'file', 'gif', 'video'])
   type!: string;
