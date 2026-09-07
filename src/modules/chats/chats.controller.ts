@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/auth/jwt-auth.guard';
 import { ChatsService } from './chats.service';
-import { CreateChatDto } from './dto/creat-chat.dto';
+import { CreateChatDto } from './dto/creatе-chat.dto';
 import { AddMembersDto } from './dto/add-members.dto';
 
 @UseGuards(JwtAuthGuard)

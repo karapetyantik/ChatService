@@ -1,11 +1,11 @@
-import { Module, Options } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { ConfigService } from '@nestjs/config';
-import { MessagesService } from 'src/modules/messages/messages.service';
-import { MessagesController } from 'src/modules/messages/messages.controller';
-import { CassandraModule } from '../../common/cassandra/cassandra.module';
-import { ChatsModule } from '../chats/chats.module';
-import { MediaClientModule } from '../media-client/media-client.module';
+import { MessagesService } from './messages.service';
+import { MessagesController } from './messages.controller';
+import { CassandraModule } from '@common/cassandra/cassandra.module';
+import { ChatsModule } from '@modules/chats/chats.module';
+import { MediaClientModule } from '@modules/media-client/media-client.module';
 
 @Module({
   imports: [
@@ -43,5 +43,6 @@ import { MediaClientModule } from '../media-client/media-client.module';
   ],
   providers: [MessagesService],
   controllers: [MessagesController],
+  exports: [MessagesService],
 })
 export class MessagesModule {}

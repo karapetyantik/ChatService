@@ -8,8 +8,8 @@ import {
 } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { types } from 'cassandra-driver';
-import { CassandraService } from 'src/common/cassandra/cassandra.service';
-import { CreateChatDto } from './dto/creat-chat.dto';
+import { CassandraService } from '@common/cassandra/cassandra.service';
+import { CreateChatDto } from './dto/creatе-chat.dto';
 
 @Injectable()
 export class ChatsService {

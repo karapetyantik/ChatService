@@ -1,10 +1,10 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
-import { types } from 'cassandra-driver';
 import { ClientProxy } from '@nestjs/microservices';
-import { CassandraService } from '../../common/cassandra/cassandra.service';
-import { ChatsService } from 'src/modules/chats/chats.service';
+import { types } from 'cassandra-driver';
+import { CassandraService } from '@common/cassandra/cassandra.service';
+import { ChatsService } from '@modules/chats/chats.service';
+import { MediaClientService } from '@modules/media-client/media-client.service';
 import { SendMessageDto } from './dto/send-message.dto';
-import { MediaClientService } from '../media-client/media-client.service';
 
 @Injectable()
 export class MessagesService {

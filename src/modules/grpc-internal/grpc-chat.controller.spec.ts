@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { GrpcChatController } from './grpc-chat.controller';
+import { GrpcChatController } from '../chats/grpc-chat/grpc-chat.controller';
 
 describe('GrpcChatController', () => {
   let controller: GrpcChatController;

@@ -1,10 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
-import { CassandraModule } from 'src/common/cassandra/cassandra.module';
+import { CassandraModule } from '@common/cassandra/cassandra.module';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { ConfigService } from '@nestjs/config';
-import { GrpcChatController } from './grpc-chat/grpc-chat.controller';
 
 @Module({
   imports: [
@@ -24,8 +23,8 @@ import { GrpcChatController } from './grpc-chat/grpc-chat.controller';
       },
     ]),
   ],
-  controllers: [ChatsController, GrpcChatController],
-  providers: [ChatsService, GrpcChatController],
+  controllers: [ChatsController],
+  providers: [ChatsService],
   exports: [ChatsService],
 })
 export class ChatsModule {}

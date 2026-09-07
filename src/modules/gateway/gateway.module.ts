@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { ChatGateway } from './chat.gateway';
-import { RedisModule } from '../../common/redis/redis.module';
+import { RedisModule } from '@common/redis/redis.module';
 import { DeliveryController } from './delivery/delivery.controller';
 
 @Module({

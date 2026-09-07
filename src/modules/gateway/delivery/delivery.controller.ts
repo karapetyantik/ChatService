@@ -1,7 +1,7 @@
 import { Controller, Logger } from '@nestjs/common';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { ChatGateway } from '../chat.gateway';
-import { RedisService } from 'src/common/redis/redis.service';
+import { RedisService } from '@common/redis/redis.service';
 
 interface MessageSentEvent {
   chatId: string;
