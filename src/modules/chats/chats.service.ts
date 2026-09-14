@@ -249,4 +249,63 @@ export class ChatsService {
 
     return result.rowLength ? result.first() : null;
   }
+
+  async getUnreadMessages(userId: string, maxMessagesPerChat = 20) {
+    const userChats = await this.getUserChats(userId);
+
+    const chats = await Promise.all(
+      userChats.map(async (row) => {
+        const chatId = String(row.get('chat_id'));
+
+        const [chat, readState] = await Promise.all([
+          this.getChat(chatId),
+          this.getReadState(userId, chatId),
+        ]);
+
+        const lastReadMessageId =
+          readState?.get('last_read_message_id') ?? null;
+
+        const query = lastReadMessageId
+          ? `SELECT message_id, sender_id, content, type, created_at FROM messages WHERE chat_id = ? AND message_id > ? LIMIT ?`
+          : `SELECT message_id, sender_id, content, type, created_at FROM messages WHERE chat_id = ? LIMIT ?`;
+        const params = lastReadMessageId
+          ? [chatId, lastReadMessageId, maxMessagesPerChat]
+          : [chatId, maxMessagesPerChat];
+
+        const result = await this.cassandra.client.execute(query, params, {
+          prepare: true,
+        });
+
+        const unread = result.rows.filter(
+          (r) => String(r.get('sender_id')) !== userId,
+        );
+
+        if (unread.length === 0) {
+          return null;
+        }
+
+        let otherMemberId = '';
+        if (chat.get('type') === 'direct') {
+          const memberIds = await this.getMemberIds(chatId);
+          otherMemberId = memberIds.find((id) => id !== userId) ?? '';
+        }
+
+        return {
+          chatId,
+          chatType: chat.get('type') as string,
+          title: (chat.get('title') as string) ?? '',
+          otherMemberId,
+          messages: unread.map((r) => ({
+            messageId: r.get('message_id').toString(),
+            senderId: String(r.get('sender_id')),
+            content: (r.get('content') as string) ?? '',
+            type: r.get('type') as string,
+            createdAt: (r.get('created_at') as Date).toISOString(),
+          })),
+        };
+      }),
+    );
+
+    return chats.filter((c): c is NonNullable<typeof c> => c !== null);
+  }
 }

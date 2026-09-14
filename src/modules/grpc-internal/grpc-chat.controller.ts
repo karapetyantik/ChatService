@@ -48,4 +48,16 @@ export class GrpcChatController {
       return { success: false, messageId: '', error: message };
     }
   }
+
+  @GrpcMethod('ChatInternal', 'GetUnreadMessages')
+  async getUnreadMessages(data: {
+    userId: string;
+    maxMessagesPerChat?: number;
+  }) {
+    const chats = await this.chatsService.getUnreadMessages(
+      data.userId,
+      data.maxMessagesPerChat || undefined,
+    );
+    return { chats };
+  }
 }
