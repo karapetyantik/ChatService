@@ -308,4 +308,17 @@ export class ChatsService {
 
     return chats.filter((c): c is NonNullable<typeof c> => c !== null);
   }
+
+  async getUserMessagesInChat(chatId: string, userId: string, limit = 15) {
+    const result = await this.cassandra.client.execute(
+      `SELECT content, sender_id FROM messages WHERE chat_id = ? LIMIT ?`,
+      [chatId, limit * 4],
+      { prepare: true },
+    );
+
+    return result.rows
+      .filter((r) => String(r.get('senderId')) === userId && r.get('content'))
+      .slice(0, limit)
+      .map((r) => r.get('content') as string);
+  }
 }

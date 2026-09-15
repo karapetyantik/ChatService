@@ -31,12 +31,14 @@ export class GrpcChatController {
     chatId: string;
     senderId: string;
     content: string;
+    viaAssistant?: boolean;
   }) {
     try {
-      const result = await this.messagesService.sendMessage(data.senderId, {
-        chatId: data.chatId,
-        content: data.content,
-      });
+      const result = await this.messagesService.sendMessage(
+        data.senderId,
+        { chatId: data.chatId, content: data.content },
+        Boolean(data.viaAssistant),
+      );
       return {
         success: true,
         messageId: result.messageId,
@@ -59,5 +61,19 @@ export class GrpcChatController {
       data.maxMessagesPerChat || undefined,
     );
     return { chats };
+  }
+
+  @GrpcMethod('ChatInternal', 'GetUserMessagesInChat')
+  async getUserMessagesInChat(data: {
+    chatId: string;
+    userId: string;
+    limit?: number;
+  }) {
+    const messages = await this.chatsService.getUserMessagesInChat(
+      data.chatId,
+      data.userId,
+      data.limit || undefined,
+    );
+    return { messages };
   }
 }

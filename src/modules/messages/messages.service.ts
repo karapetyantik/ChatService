@@ -15,9 +15,14 @@ export class MessagesService {
     @Inject('RABBITMQ_SERVICE') private readonly rabbitClient: ClientProxy,
     @Inject('NOTIFICATION_SERVICE')
     private readonly notificationClient: ClientProxy,
+    @Inject('ASSISTANT_SERVICE') private readonly assistantClient: ClientProxy,
   ) {}
 
-  async sendMessage(senderId: string, dto: SendMessageDto) {
+  async sendMessage(
+    senderId: string,
+    dto: SendMessageDto,
+    viaAssistant = false,
+  ) {
     if (!dto.content && (!dto.attachments || dto.attachments.length === 0)) {
       throw new BadRequestException(
         'Сообщение должно содержать текст или хотя бы одно вложение',
@@ -55,8 +60,8 @@ export class MessagesService {
     }
 
     const query = `
-    INSERT INTO messages (chat_id, message_id, sender_id, content, created_at, type, attachments)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (chat_id, message_id, sender_id, content, created_at, type, attachments, viaAssistant)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
     await this.cassandra.client.execute(
@@ -76,6 +81,7 @@ export class MessagesService {
           size_bytes: a.sizeBytes ?? null,
           placeholder: a.placeholder ?? null,
         })) ?? null,
+        viaAssistant,
       ],
       { prepare: true },
     );
@@ -91,6 +97,7 @@ export class MessagesService {
       type,
       createdAt,
       recipientIds,
+      viaAssistant,
     });
 
     this.notificationClient.emit('message.sent', {
@@ -98,6 +105,15 @@ export class MessagesService {
       senderId,
       content: dto.content,
       recipientIds,
+    });
+
+    this.assistantClient.emit('message.sent', {
+      chatId: dto.chatId,
+      messageId: messageId.toString(),
+      senderId,
+      content: dto.content,
+      recipientIds,
+      viaAssistant,
     });
 
     return {

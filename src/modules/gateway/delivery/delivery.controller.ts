@@ -12,6 +12,7 @@ interface MessageSentEvent {
   type: string;
   createdAt: Date;
   recipientIds: string[];
+  viaAssistant?: boolean;
 }
 
 interface MessageReactionEvent {
