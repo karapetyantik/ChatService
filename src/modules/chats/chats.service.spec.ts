@@ -11,6 +11,7 @@ describe('ChatsService', () => {
         ChatsService,
         { provide: CassandraService, useValue: { client: {} } },
         { provide: 'RABBITMQ_SERVICE', useValue: { emit: jest.fn() } },
+        { provide: 'REACTIONS_SERVICE', useValue: { emit: jest.fn() } },
       ],
     }).compile();
 

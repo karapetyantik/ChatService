@@ -76,4 +76,13 @@ export class GrpcChatController {
     );
     return { messages };
   }
+
+  @GrpcMethod('ChatInternal', 'GetRecentMessages')
+  async getRecentMessages(data: { chatId: string; limit?: number }) {
+    const messages = await this.chatsService.getRecentMessages(
+      data.chatId,
+      data.limit || undefined,
+    );
+    return { messages };
+  }
 }

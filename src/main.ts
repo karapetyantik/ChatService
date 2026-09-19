@@ -2,8 +2,8 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { ConfigService } from '@nestjs/config';
-import { AppModule } from './app.module';
 import { join } from 'path';
+import { AppModule } from './app.module';
 import { RedisIoAdapter } from '@modules/gateway/adapters/redis-io.adapter';
 
 async function bootstrap() {
@@ -34,7 +34,7 @@ async function bootstrap() {
     options: {
       package: 'chat',
       protoPath: join(process.cwd(), 'dist/proto/chat.proto'),
-      url: '0.0.0.0:5001',
+      url: configService.get<string>('CHAT_GRPC_URL', '0.0.0.0:5001'),
     },
   });
 

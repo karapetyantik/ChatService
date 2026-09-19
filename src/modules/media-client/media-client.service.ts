@@ -12,11 +12,30 @@ interface MediaVerifyResult {
   mimeType: string;
 }
 
+interface MediaUrlEntry {
+  mediaId: string;
+  url: string;
+  isAvailable: boolean;
+}
+
+export interface MediaUrlLookup {
+  url: string;
+  isAvailable: boolean;
+}
+
+interface MediaUrlsResponse {
+  urls: MediaUrlEntry[];
+}
+
 interface MediaInternalGrpcService {
   verifyMedia(
     data: { mediaId: string; uploaderId: string },
     metadata?: Metadata,
   ): Observable<MediaVerifyResult>;
+  getMediaUrls(
+    data: { mediaIds: string[] },
+    metadata?: Metadata,
+  ): Observable<MediaUrlsResponse>;
 }
 
 @Injectable()
@@ -28,12 +47,15 @@ export class MediaClientService implements OnModuleInit {
     private readonly config: ConfigService,
   ) {}
 
-  onModuleInit() {
+  onModuleInit(): void {
     this.grpcService =
       this.client.getService<MediaInternalGrpcService>('MediaInternal');
   }
 
-  async verifyMedia(mediaId: string, uploaderId: string) {
+  async verifyMedia(
+    mediaId: string,
+    uploaderId: string,
+  ): Promise<MediaVerifyResult> {
     return firstValueFrom(
       this.grpcService.verifyMedia(
         { mediaId, uploaderId },
@@ -41,6 +63,23 @@ export class MediaClientService implements OnModuleInit {
           this.config.getOrThrow<string>('INTERNAL_API_KEY'),
         ),
       ),
+    );
+  }
+
+  async getMediaUrls(mediaIds: string[]): Promise<Map<string, MediaUrlLookup>> {
+    const response = await firstValueFrom(
+      this.grpcService.getMediaUrls(
+        { mediaIds },
+        buildInternalGrpcMetadata(
+          this.config.getOrThrow<string>('INTERNAL_API_KEY'),
+        ),
+      ),
+    );
+    return new Map(
+      response.urls.map((u) => [
+        u.mediaId,
+        { url: u.url, isAvailable: u.isAvailable },
+      ]),
     );
   }
 }

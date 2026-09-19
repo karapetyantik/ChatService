@@ -4,6 +4,7 @@ package media;
 
 service MediaInternal {
   rpc VerifyMedia (VerifyMediaRequest) returns (VerifyMediaResponse);
+  rpc GetMediaUrls (GetMediaUrlsRequest) returns (GetMediaUrlsResponse);
 }
 
 message VerifyMediaRequest {
@@ -16,4 +17,18 @@ message VerifyMediaResponse {
   string url = 2;
   string mimeType = 3;
   string placeholder = 4;
+}
+
+message GetMediaUrlsRequest {
+  repeated string mediaIds = 1;
+}
+
+message MediaUrlEntry {
+  string mediaId = 1;
+  string url = 2;
+  bool isAvailable = 3;
+}
+
+message GetMediaUrlsResponse {
+  repeated MediaUrlEntry urls = 1;
 }

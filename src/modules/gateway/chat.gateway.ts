@@ -3,15 +3,14 @@ import {
   WebSocketServer,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  SubscribeMessage,
+  ConnectedSocket,
 } from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io';
 import { Injectable, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Server, Socket } from 'socket.io';
 import { RedisService } from '@common/redis/redis.service';
 
-// WebSocketGateway options are evaluated at class-definition time, before
-// Nest's DI container exists, so ConfigService can't be injected here —
-// read the allowed origin straight from the environment instead.
 const FRONTEND_ORIGIN = process.env.FRONTEND_URL ?? 'http://localhost:5173';
 
 interface SocketData {
@@ -46,6 +45,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       (client.data as SocketData).userId = userId;
       await this.redisService.client.sadd(`user_sockets:${userId}`, client.id);
+      await this.redisService.client.expire(`user_sockets:${userId}`, 86_400); //временно
 
       this.logger.log(
         `Клиент подключён: userId=${userId}, socketId=${client.id}`,
@@ -66,5 +66,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         `Клиент отключён: userId=${userId}, socketId=${client.id}`,
       );
     }
+  }
+
+  @SubscribeMessage('heartbeat')
+  async handleHeartbeat(
+    @ConnectedSocket() client: Socket,
+  ): Promise<{ event: 'heartbeat'; data: { ok: boolean } }> {
+    const userId = (client.data as SocketData).userId;
+    if (userId) {
+      await this.redisService.client.sadd(`user_sockets:${userId}`, client.id);
+      await this.redisService.client.expire(`user_sockets:${userId}`, 3600);
+    }
+    return { event: 'heartbeat', data: { ok: true } };
   }
 }

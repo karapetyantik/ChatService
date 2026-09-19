@@ -35,7 +35,8 @@ ReactionsService                  ReactionsService (delivery)   (проверк�
 
 - Личные и групповые чаты, роли участников (`admin`/`member`), добавление/удаление участников.
 - Отправка сообщений с текстом и/или вложениями (вложения верифицируются в MediaService по gRPC перед сохранением, параллельно для всех вложений).
-- Realtime-доставка новых сообщений, реакций и статусов прочтения через WebSocket всем активным сокетам получателя (с учётом множества вкладок/устройств через Redis-adapter).
+- Realtime-доставка новых сообщений, реакций и статусов прочтения через WebSocket всем активным сокетам получателя (с учётом множества вкладок/устройств через Redis-adapter, сокеты получателей всех адресатов события вычитываются одним Redis-пайплайном, а не по одному).
+- Вложения, чей файл к моменту чтения истории удалён/не подтверждён в MediaService, помечаются `isAvailable: false` (`url: null`) — а не отдаются с протухшей presigned-ссылкой.
 - Статусы прочтения (`chat.read`) с уведомлением остальных участников.
 - Внутренний gRPC-сервер `ChatInternal` — используется AIAssistantService (отложенная отправка, проверка членства) и ReactionsService (получатели для рассылки реакции), защищён shared-secret заголовком.
 
@@ -51,14 +52,15 @@ ReactionsService                  ReactionsService (delivery)   (проверк�
 | `DELETE` | `/chats/:chatId/members/:userId` | Удалить участника (только админ) |
 | `POST` | `/chats/:chatId/read` | Отметить сообщение прочитанным |
 | `POST` | `/chats/messages` | Отправить сообщение |
-| `GET` | `/chats/:chatId/messages` | История сообщений (`?limit=50`) |
+| `GET` | `/chats/:chatId/messages` | История сообщений (`?limit=50&before=messageId` для пагинации; `limit` — целое 1..100) |
 
 ## WebSocket (`/`, Socket.IO)
 
 - Аутентификация в `handshake.auth.token` или заголовке `Authorization: Bearer` — JWT проверяется в `handleConnection`, невалидный токен обрывает соединение.
 - CORS ограничен `FRONTEND_URL`.
 - События, которые сервер шлёт клиенту: `message`, `reaction`, `read`.
-- Клиент ничего не подписывает через `@SubscribeMessage` — доставка идёт по факту наличия открытого сокета у получателя (`user_sockets:{userId}` в Redis), не по комнатам.
+- Доставка идёт по факту наличия открытого сокета у получателя (`user_sockets:{userId}` в Redis, TTL), не по комнатам.
+- Клиент может слать `heartbeat` — продлевает TTL записи в `user_sockets:{userId}`, чтобы presence не считался протухшим при долгоживущем соединении.
 
 ## Внутренний gRPC-сервер: `ChatInternal`
 
@@ -68,7 +70,9 @@ Proto: `src/proto/chat.proto`. Защищён `InternalGrpcAuthGuard` — каж
 |---|---|---|
 | `GetChatMembers` | ReactionsService | Список участников чата (для рассылки реакции) |
 | `IsMember` | AIAssistantService, ReactionsService | Проверка членства перед действием |
-| `SendMessageInternal` | AIAssistantService | Отправка отложенного сообщения от имени пользователя |
+| `SendMessageInternal` | AIAssistantService | Отправка отложенного/авто-сообщения от имени пользователя |
+| `GetUserMessagesInChat` | AIAssistantService | Последние настоящие (не авто-ответные) сообщения пользователя — образец стиля для авто-ответа |
+| `GetRecentMessages` | AIAssistantService | Последние сообщения чата целиком (хронологически) — контекст переписки для авто-ответа |
 
 ## RabbitMQ
 
@@ -76,8 +80,9 @@ Proto: `src/proto/chat.proto`. Защищён `InternalGrpcAuthGuard` — каж
 
 | Событие | Очередь-получатель | Когда |
 |---|---|---|
-| `message.sent` | `chat_events` (себе же, для доставки) + `notification_events` | Новое сообщение отправлено |
+| `message.sent` | `chat_events` (себе же, для доставки) + `notification_events` + `ai_assistant_events` | Новое сообщение отправлено |
 | `chat.read` | `chat_events` | Сообщение отмечено прочитанным |
+| `chat.members.changed` | `reactions_events` | Участник добавлен/удалён из группы — сигнал ReactionsService немедленно сбросить кэш состава чата, не дожидаясь TTL |
 
 **Потребляет** (`chat_events`, для WebSocket-доставки): `message.sent`, `chat.read`, а также `message.reaction` (публикуется ReactionsService).
 
@@ -127,11 +132,12 @@ npm run test
 npm run lint
 ```
 
-Требует поднятый ScyllaDB/Cassandra keyspace (схема применяется вне этого репозитория, миграций Prisma здесь нет), Redis и RabbitMQ.
+Требует поднятый ScyllaDB/Cassandra keyspace (миграций Prisma здесь нет; актуальный дамп схемы — `schema.cql` в корне репозитория), Redis и RabbitMQ.
 
 ## Безопасность
 
-- Внутренний gRPC-сервер (`ChatInternal`) требует shared-secret — раньше был полностью открыт в сети.
+- Внутренний gRPC-сервер (`ChatInternal`) требует shared-secret, сравнение — константного времени (`timingSafeEqual`), а не `!==`, чтобы не давать канал утечки по времени ответа.
 - WebSocket-подключение без валидного JWT немедленно разрывается.
 - CORS WebSocket ограничен конкретным origin, а не `*`.
 - N+1-вызовы к MediaService при отправке нескольких вложений выполняются параллельно (`Promise.all`), а не последовательно.
+- `GET /chats/:chatId/messages?limit=` валидируется как целое 1..100 — раньше непроверенный `parseInt` пропускал произвольно большой/невалидный лимит прямо в запрос к Cassandra.

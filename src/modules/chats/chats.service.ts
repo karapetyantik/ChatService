@@ -16,6 +16,8 @@ export class ChatsService {
   constructor(
     private readonly cassandra: CassandraService,
     @Inject('RABBITMQ_SERVICE') private readonly rabbitClient: ClientProxy,
+    @Inject('REACTIONS_SERVICE')
+    private readonly reactionsClient: ClientProxy,
   ) {}
 
   async createChat(creatorId: string, dto: CreateChatDto) {
@@ -173,6 +175,8 @@ export class ChatsService {
 
     await this.cassandra.client.batch(queries, { prepare: true });
 
+    this.reactionsClient.emit('chat.members.changed', { chatId });
+
     return { chatId, addedMemberIds: idsToAdd };
   }
 
@@ -207,6 +211,8 @@ export class ChatsService {
       ],
       { prepare: true },
     );
+
+    this.reactionsClient.emit('chat.members.changed', { chatId });
 
     return { chatId, removedUserId: targetUserId };
   }
@@ -311,14 +317,37 @@ export class ChatsService {
 
   async getUserMessagesInChat(chatId: string, userId: string, limit = 15) {
     const result = await this.cassandra.client.execute(
-      `SELECT content, sender_id FROM messages WHERE chat_id = ? LIMIT ?`,
+      `SELECT content, sender_id, via_assistant FROM messages WHERE chat_id = ? LIMIT ?`,
       [chatId, limit * 4],
       { prepare: true },
     );
 
     return result.rows
-      .filter((r) => String(r.get('senderId')) === userId && r.get('content'))
+      .filter(
+        (r) =>
+          String(r.get('sender_id')) === userId &&
+          r.get('content') &&
+          !r.get('via_assistant'),
+      )
       .slice(0, limit)
       .map((r) => r.get('content') as string);
+  }
+
+  async getRecentMessages(chatId: string, limit = 10) {
+    const result = await this.cassandra.client.execute(
+      `SELECT sender_id, content, via_assistant, created_at FROM messages WHERE chat_id = ? LIMIT ?`,
+      [chatId, limit],
+      { prepare: true },
+    );
+
+    return result.rows
+      .filter((r) => r.get('content'))
+      .map((r) => ({
+        senderId: String(r.get('sender_id')),
+        content: r.get('content') as string,
+        viaAssistant: Boolean(r.get('via_assistant')),
+        createdAt: (r.get('created_at') as Date).toISOString(),
+      }))
+      .reverse();
   }
 }

@@ -63,19 +63,33 @@ export class DeliveryController {
     recipientIds: string[],
     eventName: string,
     payload: unknown,
-  ) {
+  ): Promise<void> {
+    const pipeline = this.redisService.client.pipeline();
     for (const userId of recipientIds) {
-      const socketIds = await this.redisService.client.smembers(
-        `user_sockets:${userId}`,
-      );
+      pipeline.smembers(`user_sockets:${userId}`);
+    }
 
-      for (const socketId of socketIds) {
-        this.chatGateway.server.to(socketId).emit(eventName, payload);
+    const results: [Error | null, unknown][] | null = await pipeline.exec();
+    let totalSockets = 0;
+
+    (results ?? []).forEach(([err, socketIds], index) => {
+      if (err) {
+        this.logger.error(
+          `Не удалось получить сокеты userId=${recipientIds[index]}: ${err}`,
+        );
+        return;
       }
 
-      this.logger.log(
-        `Доставлено userId=${userId} на ${socketIds.length} сокет(ов) (${eventName})`,
-      );
-    }
+      const ids: string[] = (socketIds as string[] | null) ?? [];
+
+      for (const socketId of ids) {
+        this.chatGateway.server.to(socketId).emit(eventName, payload);
+      }
+      totalSockets += ids.length;
+    });
+
+    this.logger.log(
+      `Событие ${eventName}: получателей=${recipientIds.length}, сокетов=${totalSockets}`,
+    );
   }
 }

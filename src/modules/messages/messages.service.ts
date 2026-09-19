@@ -1,10 +1,22 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { types } from 'cassandra-driver';
+import { SendMessageDto } from './dto/send-message.dto';
 import { CassandraService } from '@common/cassandra/cassandra.service';
 import { ChatsService } from '@modules/chats/chats.service';
-import { MediaClientService } from '@modules/media-client/media-client.service';
-import { SendMessageDto } from './dto/send-message.dto';
+import {
+  MediaClientService,
+  MediaUrlLookup,
+} from '@modules/media-client/media-client.service';
+
+interface StoredAttachment {
+  media_id: string;
+  url: string;
+  type: string;
+  file_name: string | null;
+  size_byte: number | null;
+  placeholder: string | null;
+}
 
 @Injectable()
 export class MessagesService {
@@ -60,8 +72,8 @@ export class MessagesService {
     }
 
     const query = `
-    INSERT INTO messages (chat_id, message_id, sender_id, content, created_at, type, attachments, viaAssistant)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO messages (chat_id, message_id, sender_id, content, created_at, type, attachments, via_assistant)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
     await this.cassandra.client.execute(
@@ -127,14 +139,58 @@ export class MessagesService {
     };
   }
 
-  async getHistory(chatId: string, userId: string, limit = 50) {
+  async getHistory(
+    chatId: string,
+    userId: string,
+    limit = 50,
+    beforeMessageId?: string,
+  ): Promise<Record<string, unknown>[]> {
     await this.chatsService.assertMember(chatId, userId);
 
-    const result = await this.cassandra.client.execute(
-      `SELECT * FROM messages WHERE chat_id = ? LIMIT ?`,
-      [chatId, limit],
-      { prepare: true },
-    );
-    return result.rows;
+    const params: unknown[] = [chatId];
+    let query = `SELECT * FROM messages WHERE chat_id = ?`;
+    if (beforeMessageId) {
+      query += ` AND message_id < ?`;
+      params.push(types.TimeUuid.fromString(beforeMessageId));
+    }
+    query += ` LIMIT ?`;
+    params.push(limit);
+
+    const result = await this.cassandra.client.execute(query, params, {
+      prepare: true,
+    });
+
+    const mediaIds: string[] = [
+      ...new Set(
+        result.rows.flatMap((row) =>
+          ((row.get('attachments') as StoredAttachment[] | null) ?? []).map(
+            (attachment) => attachment.media_id,
+          ),
+        ),
+      ),
+    ];
+
+    const urlById: Map<string, MediaUrlLookup> = mediaIds.length
+      ? await this.mediaClient.getMediaUrls(mediaIds)
+      : new Map<string, MediaUrlLookup>();
+
+    return result.rows.map((row) => ({
+      ...row,
+      attachments: (
+        (row.get('attachments') as StoredAttachment[] | null) ?? []
+      ).map((attachment) => {
+        // No entry means MediaService doesn't know this mediaId at all — treat
+        // the same as isAvailable: false rather than falling back to the
+        // presigned URL captured at send time, which expires and would look
+        // like a broken image instead of an explicit "file gone" state.
+        const lookup = urlById.get(attachment.media_id);
+        const isAvailable = lookup?.isAvailable ?? false;
+        return {
+          ...attachment,
+          url: isAvailable ? (lookup?.url ?? null) : null,
+          isAvailable,
+        };
+      }),
+    }));
   }
 }

@@ -6,25 +6,33 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Metadata } from '@grpc/grpc-js';
+import { timingSafeEqual } from 'crypto';
 
 const INTERNAL_KEY_METADATA_FIELD = 'x-internal-key';
 
-/**
- * Internal gRPC endpoints (ChatInternal) are reachable by any service on the
- * network — they are not gated by end-user JWTs. This guard requires callers
- * to present a shared secret in call metadata so an arbitrary caller can't,
- * e.g., invoke SendMessageInternal as any senderId.
- */
 @Injectable()
 export class InternalGrpcAuthGuard implements CanActivate {
   constructor(private readonly config: ConfigService) {}
 
   canActivate(context: ExecutionContext): boolean {
     const metadata = context.switchToRpc().getContext<Metadata>();
-    const provided = metadata.get(INTERNAL_KEY_METADATA_FIELD)[0];
-    const expected = this.config.getOrThrow<string>('INTERNAL_API_KEY');
+    const providedRaw: string | Buffer | undefined = metadata.get(
+      INTERNAL_KEY_METADATA_FIELD,
+    )[0];
+    const expectedRaw: string =
+      this.config.getOrThrow<string>('INTERNAL_API_KEY');
 
-    if (provided !== expected) {
+    if (typeof providedRaw !== 'string' || !providedRaw) {
+      throw new UnauthorizedException('Invalid internal service credentials');
+    }
+
+    const providedBuffer: Buffer = Buffer.from(providedRaw);
+    const expectedBuffer: Buffer = Buffer.from(expectedRaw);
+
+    if (
+      providedBuffer.length !== expectedBuffer.length ||
+      !timingSafeEqual(providedBuffer, expectedBuffer)
+    ) {
       throw new UnauthorizedException('Invalid internal service credentials');
     }
     return true;
